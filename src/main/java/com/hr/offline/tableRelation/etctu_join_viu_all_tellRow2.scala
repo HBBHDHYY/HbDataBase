@@ -128,10 +128,14 @@ object etctu_join_viu_all_tellRow2 {
     println(viuSql)
     var viu_windowDuration = 5 + 2*frontAndBackLength
     var viu_slideDuration = etc_windowDuration
+
     println(s"etc_windowDuration:${etc_windowDuration},etc_slideDuration${etc_windowDuration}")
     //开始时间的绝对值要小于滑动时间
     println(s"viu_windowDuration:${viu_windowDuration},viu_slideDuration:${viu_slideDuration}")
+
     var viu = spark.sql(viuSql).repartition(53).withColumn("viu_windows", functions.window($"viu_picTime", s"${viu_windowDuration} second", s"${viu_slideDuration} second")).withColumn("viu_windows_start_add_2mintu", functions.unix_timestamp(col("viu_windows.start")) + frontAndBackLength).rdd.groupBy(x => (x.get(4) + "-" + x.get(6)))
+
+
     import scala.util.control.Breaks
     //广播变量
     val broadcastVar = sc.broadcast(frontAndBackLength)

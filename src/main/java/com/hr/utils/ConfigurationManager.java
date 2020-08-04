@@ -5,6 +5,8 @@ import java.util.Properties;
 
 /**
  *
+ * HF
+ * 2020-06-07 16:41
  * 读取配置文件工具类
  */
 public class ConfigurationManager {

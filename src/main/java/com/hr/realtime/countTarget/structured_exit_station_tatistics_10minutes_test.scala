@@ -1,56 +1,127 @@
-package com.hr.offline.countTarget
+package com.hr.realtime.countTarget
+import org.apache.spark.sql.streaming.{ProcessingTime, StreamingQuery, Trigger}
+import java.sql.Timestamp
+import java.text.SimpleDateFormat
+import java.util.Date
 
+import com.alibaba.fastjson.JSON
+import breeze.numerics.log
+import com.hr.{bean, utils}
+import com.hr.utils._
+import org.apache.spark.{SparkConf, SparkContext, rdd}
+import org.apache.spark.broadcast.Broadcast
+import org.apache.spark.rdd.RDD
+import org.apache.spark.streaming.dstream.{DStream, InputDStream}
+import org.apache.spark.streaming.{Minutes, Seconds, StreamingContext}
+import java.util.Properties
+import java.text.SimpleDateFormat
+
+import breeze.linalg.*
+import com.hr.bean._
+import com.hr.utils.definitionFunction._
+import org.apache.log4j.{Level, Logger}
+import org.apache.spark
+import org.apache.spark.sql.Row
+import spire.implicits
+import org.apache.spark.sql._
+import spire.std.unit
+import com.hr.utils.DataSourceUtil._
+import org.apache.spark.streaming.kafka010._
+import scala.util.control.Breaks
+import com.hr.bean.EtcTollexBillInfo
+import org.apache.spark.sql._
+import org.apache.spark.sql.functions._
+import java.sql.{Connection, DriverManager, PreparedStatement}
+
+import org.apache.spark.sql.{DataFrame, ForeachWriter, Row, SparkSession}
 /**
   * HF
-  * 2020-06-13 10:30
+  * 2020-06-20 21:10
   */
-
-import com.hr.utils
-import com.hr.utils.{HBaseGeneral, HbaseUtil}
-import org.apache.hadoop.hbase.client.Put
-import org.apache.hadoop.hbase.util.Bytes
-import org.apache.log4j.{Level, Logger}
-import org.apache.spark.sql._
-//车道出口交易数据按天统计
-object exit_station_tatistics_day {
+import scala.util.matching.Regex
+import java.sql.Timestamp
+object structured_exit_station_tatistics_10minutes_test {
   def main(args: Array[String]): Unit = {
 
-    var (year, month, day, hour, day_or_hour, taskDescription) = (args(0), args(1), args(2), args(3), args(4), args(5))
-
-    val spark = SparkSession.builder()
-      .master("yarn-cluster") //local[*],yarn-cluster
-      .appName(s"粒度:${day_or_hour},日期:,信息:${taskDescription} exit_station_tatistics")
-      .enableHiveSupport()
+    val spark: SparkSession = SparkSession
+      .builder()
+      .master("local[*]")
+      .appName("RealtimeApp")
+      .config("spark.debug.maxToStringFields", "2000")
       .getOrCreate()
-    val sc = spark.sparkContext
-    println("-----版本 17:00----")
-    println(day_or_hour,day_or_hour == "hour")
-    import org.apache.spark.sql.functions._
+    spark.sparkContext.setLogLevel("WARN")  //WARN,INFO
     import spark.implicits._
-    System.setProperty("HADOOP_USER_NAME", "hdfs")
-    spark.conf.set("spark.storage.memoryFraction", "0.4")
-    spark.conf.set("spark.sql.hive.verifyPartitionPath", "true")
+    val dayStringFormatter: SimpleDateFormat = new SimpleDateFormat("yyyy-MM-dd")
+    val hmStringFormatter: SimpleDateFormat = new SimpleDateFormat("HH:mm")
+    var etcTollexBillInfo_windowDuration = 5
 
-    //ods.etc_tollexbillinfo
-    val originTableName= "ods.etc_tollexbillinfo"  //测试表名
-    val resultTableName= "spark_test.ETC_exConsumeDailyStatistic"  //测试表名
+    // 1. 从 kafka 读取数据, 为了方便后续处理, 封装数据到 AdsInfo 样例类中
+    var EtcTollexBillInfoDS_Original: Dataset[String] = spark.readStream
+      .format("kafka")
+      .option("kafka.bootstrap.servers", "hadoop103:9092,hadoop104:9092")
+      .option("subscribe", "etc_tollexbillinfo") //订阅的kafka主题
+      .option("failOnDataLoss", "false")  //数据丢失之后(topic被删除，或者offset不在可用范围内时)查询是否失败
+      //.option("startingOffsets", "earliest")
+      //.option("endingOffsets", "latest")
+      .load
+      .select("value")  //取出kafka的key和value的value
+      .as[String]  //读出来是字节流
 
 
-    //测试使用hour
-    val exitStationTatisticsSql_supplement =
-      if (day_or_hour == "hour")
-        s"and `hour`='${hour}'"
-      else
-        ""
+
+    var EtcTollexBillInfoDS_OriginalTransform=EtcTollexBillInfoDS_Original.map(value=>{
+      var etcTollexBillInfo:EtcTollexBillInfo = null
+      try {
+        etcTollexBillInfo = JSON.parseObject(value, classOf[EtcTollexBillInfo])
+      }catch{
+        case e: Exception => e.printStackTrace();e.getMessage ;println("--转换出错--")
+      }finally{
+
+      }
+      val pattern = new Regex("\"exTime\":\"\\w{4}-\\w{2}-\\w{2}T\\w{2}:\\w{2}:\\w{2}\"")
+      val eventTime_Timestamp = (pattern findFirstIn  value).mkString("").substring(10,20) +" "+ (pattern findFirstIn  value).mkString("").substring(21,29)
+      etcTollexBillInfo.eventTime = Timestamp.valueOf(eventTime_Timestamp)
+      println(s"---信息:${etcTollexBillInfo.enTime}")
+      println(s"---时间:${etcTollexBillInfo.eventTime}")
+      println(s"---exVlp:${etcTollexBillInfo.exVlp}")
+      etcTollexBillInfo
+    })
+      .withWatermark("eventTime", "1 second")  //超过2分钟不要
 
 
-    val exitStationTatisticsSql =
+
+    //when(people("gender") === "male", 0)
+    //   *     .when(people("gender") === "female", 1)
+    //   *     .otherwise(2)
+    // Scala:
+    //    *   people.select(when(people("gender") === "male", 0)
+    //      *     .when(people("gender") === "female", 1)
+    //    *     .otherwise(2))
+    //    *
+    //    *   // Java:
+    //    *   people.select(when(col("gender").equalTo("male"), 0)
+    //      *     .when(col("gender").equalTo("female"), 1)
+    //    *     .otherwise(2))
+
+    import org.apache.spark.sql.functions._
+
+
+    //    val exitStationTatistics_result_grouped = EtcTollexBillInfoDS_OriginalTransform.withColumn("ex_windows", functions.window($"eventTime", "10 second", "10 second","0 second")).groupBy($"extollstationid",$"exTollStationName",$"ex_windows")  //second  minutes hour
+
+//    val exitStationTatistics_result_grouped = EtcTollexBillInfoDS_OriginalTransform.groupBy(window($"eventTime", "10 second", "10 second"),$"extollstationid",$"exTollStationName")
+
+        val exitStationTatistics = EtcTollexBillInfoDS_OriginalTransform.withColumn("ex_windows", functions.window($"eventTime", "10 second", "10 second","0 second"))  //second  minutes hour
+
+
+
+   exitStationTatistics.createOrReplaceTempView("exitStationTatistics_table")
+
+    val exitStationTatisticsSql_tmp =
       s"""
          |select
          |extollstationid,--comment  '出口站编码(国标)'
          |exTollStationName ,--comment '出口收费站名称'
-         |concat_ws('-',`year`,`month`,`day`) as collectDay ,
-         |substring(exTime,1,10)    eventDay , --comment 当做事件发生时间
+         |ex_windows ,
          |sum(case when mediatype = 1 and exvehicletype = 1 then 1 else 0 end)  etc_1_VehicleType, --comment 'etc各个车型'etcTypeCount
          |sum(case when mediatype = 1 and exvehicletype = 2 then 1 else 0 end)  etc_2_VehicleType,
          |sum(case when mediatype = 1 and exvehicletype = 3 then 1 else 0 end)  etc_3_VehicleType,
@@ -168,20 +239,13 @@ object exit_station_tatistics_day {
          |sum(case when payType= 5  then cast(nvl(fee,0) as decimal(10,4)) else 0 end)  5_actualFeeClassSum,
          |sum(case when payType= 6  then cast(nvl(fee,0) as decimal(10,4)) else 0 end)  6_actualFeeClassSum,
          |sum(case when payType= 11  then cast(nvl(fee,0) as decimal(10,4)) else 0 end)  11_actualFeeClassSum
-         |from  ${originTableName}
-         |where `year`='${year}' and `month`='${month}' and `day`='${day}' ${exitStationTatisticsSql_supplement}
+         |from  exitStationTatistics_table
          |group by
          |extollstationid ,
          |exTollStationName,
-         |concat_ws('-',`year`,`month`,`day`) ,
-         |substring(exTime,1,10)
-       """.stripMargin
+         |ex_windows
+       """.stripMargin   //可能是太复杂了,所以出不了结果
 
-    spark.sql(exitStationTatisticsSql).createOrReplaceTempView("exitStationTatistics_tmp")
-    println("----------------exitStationTatisticsSql-------------------")
-    println(exitStationTatisticsSql)
-
-    //进行concat
     val exitStationTatisticsSql_resultSql =
       """
         |select
@@ -233,90 +297,32 @@ object exit_station_tatistics_day {
         |from
         |exitStationTatistics_tmp
       """.stripMargin
-    val exitStationTatistics_result: DataFrame = spark.sql(exitStationTatisticsSql_resultSql)
 
-
-
-    exitStationTatistics_result.createOrReplaceTempView("exitStationTatistics_result")
-    println("------------------exitStationTatisticsSql_resultSql-----------------")
-    println(exitStationTatisticsSql_resultSql)
-
-
-
-    //开启动态分区,插入hive表中
-    spark.sql("set hive.exec.max.dynamic.partitions=100000 ")
-    spark.sql("set hive.exec.dynamic.partition=true")
-    spark.sql("set hive.exec.dynamic.partition.mode=nonstrict ")
-    spark.sql(" set hive.exec.max.dynamic.partitions.pernode=100000")
-    spark.sql(" set hive.exec.max.created.files=100000")
-    spark.sql(" set hive.error.on.empty.partition=false")
-
-    var result_2_hiveTable_Sql =
+    var sql=
       s"""
-         |from exitStationTatistics_result
-         |INSERT overwrite table ${resultTableName} partition(collectDay,eventDay)
          |select
-         |extollstationid,--comment  '出口站编码(国标)'
-         |exTollStationName ,--comment '出口收费站名称'
-         |etcTypeCount,--comment 'etc各个车型'
-         |etcClassCount ,--comment 'etc各个车种',
-         |etcSuccessCount, --comment 'etc成功处理'
-         |etcFailCount, --comment 'etcetc失败处理'
-         |cpcTypeCount, --comment 'cpc各个车型的'
-         |cpcClassCount ,--comment 'cpc各个车种的'
-         |cpcSuccessCount, --comment cpc成功处理的
-         |cpcSuccessFee, --comment cpc成功处理的总金额
-         |cpcFailCount, --comment cpc失败处理的
-         |cpcFailFee,--comment cpc失败处理的总金额
-         |paperSuccessCount, --comment 纸券成功交易量
-         |pagerIssueSuccessSumFee, --comment纸券成功交易额
-         |paperFailCount , --comment 纸券失败交易量
-         |paperFailFee ,--comment 纸券失败交易额
-         |totalVeCnt , --comment 总车流量
-         |totalTransFee , --comment 总金额,
-         |totalDiscountFee, --comment 总优惠金额
-         |etcCnt, --comment ETC总量
-         |etcTotalTransFee, --comment ETC总交易金额
-         |etcTotalDiscountFee ,--comment ETC总优惠金额
-         |noMediaTypeTotalNum , --comment 无通行介质总数
-         |m1PassNum , --comment M1通行总数
-         |singleProTransTotalNum, --comment 单省交易总数
-         |singleProTransTotalFee, --comment 单省交易金额
-         |mutilProTransTotalNum, --comment 多省交易总数
-         |mutilProTransTotalFee,  --comment 多省交易金额
-         |payTypeTotalNum ,--comment 各个支付类型总个数
-         |payTypeTotalFee  ,--comment 各个支付类型总金额
-         |actualWayTotalNum , --comment 实际计费方式总个数
-         |actualWayTotalFee ,--comment 实际计费方式总金额*
-         |collectDay , --comment 采集时间
-         |eventDay  --comment 事件时间
-       """.stripMargin
-    println("----------------result_2_hiveTable_Sql-a-----------------")
-    println(result_2_hiveTable_Sql)
-
-    spark.sql(result_2_hiveTable_Sql)
-    println("----------------result_2_hiveTable_Sql-b----------------")
-    println(result_2_hiveTable_Sql)
+         |count(*),extollstationid,exTollStationName,ex_windows
+         |from exitStationTatistics_table
+         |group by extollstationid ,exTollStationName,ex_windows
+   """.stripMargin
 
 
 
-
-   // exitStationTatistics_result.repartition(5).write.format("json").mode(SaveMode.Overwrite).save("hdfs:///test/hfresult2");
-
-   // exitStationTatistics_result.repartition(5).write.format("json").mode(SaveMode.Overwrite).save("hdfs:///test/hfresult-json")
-
-    //exitStationTatistics_result.repartition(5).write.format("text").mode(SaveMode.Overwrite).save("hdfs:///test/hfresult-text")
-
-    //exitStationTatistics_result.write
+    var exitStationTatistics_result_tmp = spark.sql(exitStationTatisticsSql_tmp).createOrReplaceTempView("exitStationTatistics_tmp_table")
 
 
 
+    var exitStationTatistics_result = spark.sql(exitStationTatisticsSql_resultSql)
 
 
 
-
-
-
+        exitStationTatistics_result.writeStream //writeStream
+      .format("console")
+      .outputMode("complete")   //update  ,append ,complete
+      .option("truncate", false)  //不省略的显示数据
+      .trigger(Trigger.ProcessingTime("1 seconds"))
+      .start
+      .awaitTermination()
 
 
   }

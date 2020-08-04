@@ -1,5 +1,5 @@
 package com.hr.bean
-
+import java.sql.Timestamp
 /**
   * HF
   * 2020-06-18 10:25
@@ -34,7 +34,7 @@ case class EtcTollexBillInfo(
                               enTollLaneHex :String,
                               enTollStationId :String,
                               enTollLaneId :String,
-                              enTime :String,
+                          var enTime :String,  //入口时间 YYYY-MM-DDTHH:mm:ss
                               entryOperatorID :String,
                               laneType :String,
                               exTollStation :String,
@@ -44,9 +44,9 @@ case class EtcTollexBillInfo(
                               exTollLaneHex :String,
                               exTollStationId :String,
                               exTollLaneId :String,
-                              exTime :String,
-                              bl_SubCenter :String,
-                              bl_Center :String,
+                          var exTime :String,   //出口时间
+                              bl_SubCenter :String,   // comment '所属分中心 '
+                              bl_Center :String,    // comment '所属中心 '
                               mediaType :String,
                               mediaNo :String,
                               obuSign :String,
@@ -174,11 +174,13 @@ case class EtcTollexBillInfo(
                               enVehicleId :String,
                               exVehicleId :String,
                               identifyVehicleId :String,
-                              receivetime   :String,
+                          var receivetime   :Timestamp,  //数据接收时间 YYYY-MM-DDTHH:mm:ss
                               year :String,
                               month :String,
                               day :String,
-                              hour :String
+                              hour :String,
+                          var eventTime: Timestamp,    //实际数据没有该字段
+                          var statisWindowsTime: String  //sparkstreaming,用来开窗时间段的
                             ) {
 
 }

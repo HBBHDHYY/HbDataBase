@@ -1,10 +1,12 @@
 package com.hr.bean
 
+import java.sql.Timestamp
+
 /**
   * HF
   * 2020-06-05 16:44
   */
-//ETC门架牌识小时批次汇总上传
+//ETC门架牌识
 case class EtcGantryVehDisDataInfo(
                                 picId :String,
                                 gantryId :String,
@@ -38,7 +40,8 @@ case class EtcGantryVehDisDataInfo(
                                 stationDealTime :String,
                                 stationValidTime :String,
                                 stationMatchTime :String,
-                                receiveTime :String
+                                var  receiveTime :Timestamp,
+                                var eventTime :Timestamp
                               ) {
 
 }

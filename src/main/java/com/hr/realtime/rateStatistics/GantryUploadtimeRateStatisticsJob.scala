@@ -59,7 +59,7 @@ object GantryUploadtimeRateStatisticsJob {
       product_or_test = args(2)
       jobDescribe = args(3)
       yarnMode = "yarn-cluster"
-      kafka_bootstrap_servers = "172.27.44.205:6667,172.27.44.206:6667,172.27.44.207:6667,172.27.44.208:6667,172.27.44.209:6667"
+      kafka_bootstrap_servers = ConfigurationManager.getProperty("Product.bootstrap.servers")
       subscribe_kafakTopic = "GBUPLOAD_ETCTU_TOPIC"
     } else {
       duration_length = 1 //消费组,测试使用
@@ -67,7 +67,7 @@ object GantryUploadtimeRateStatisticsJob {
       product_or_test = "test"
       jobDescribe = "测试"
       yarnMode = "local[*]"
-      kafka_bootstrap_servers = "hadoop103:9092,hadoop104:9092"
+      kafka_bootstrap_servers = ConfigurationManager.getProperty("Test.bootstrap.servers")
       subscribe_kafakTopic = "GBUPLOAD_ETCTU_TOPIC"
     }
     println("--------版本-11:00---------")
@@ -102,7 +102,7 @@ object GantryUploadtimeRateStatisticsJob {
     structuredSteaming_Original.printSchema()
 
     //读取门架关联表,读取hive的门架表
-    var gantryFrame = spark.sql("select stationid,stationname,mjtype,mjid,mjname,tollstation,tollstationhex,roadid,roadname from dim.tb_station_mj_rela")
+    var gantryFrame = spark.sql("select stationid,stationname,mjtype,mjid,mjname,tollstation,tollstationhex,roadid,roadname from dim.dim_tb_station_mj_rela")
     //广播门架关联表
     val gantryFrameBroadCast: Broadcast[DataFrame] = spark.sparkContext.broadcast(gantryFrame)
     gantryFrameBroadCast.value.createOrReplaceTempView("tmp_middle_gantry")
@@ -236,7 +236,7 @@ object GantryUploadtimeRateStatisticsJob {
       .coalesce(1)
       .writeStream
       .outputMode("update")
-      //.option("checkpointLocation", "./etcGantryEtcBillInfo_gantry_StructuredSteaming_checkpoint")
+      .option("checkpointLocation", "./GantryUploadtimeRateStatisticsJob_Gantry_StructuredSteaming_checkpoint")
       .trigger(Trigger.ProcessingTime(s"${duration_length} seconds"))
       .foreach(gantry_mysqlSink)
       .start
@@ -245,7 +245,7 @@ object GantryUploadtimeRateStatisticsJob {
           .coalesce(1)
           .writeStream
           .outputMode("update")
-          //.option("checkpointLocation", "./etcGantryEtcBillInfo_gantry_StructuredSteaming_checkpoint")
+          .option("checkpointLocation", "./GantryUploadtimeRateStatisticsJob_dealSuccess_StructuredSteaming_checkpoint")
           .trigger(Trigger.ProcessingTime(s"${duration_length} seconds"))
           .foreach(gantry_dealSuccess_mysqlSink)
           .start
@@ -271,7 +271,7 @@ object GantryUploadtimeRateStatisticsJob {
     while (true){
       println(s"--当前时间${getCurrentDate()}--消费情况: "+Gantry_mysql.lastProgress)
       println(s"--当前时间${getCurrentDate()}--消费情况: "+dealSuccess_mysql.lastProgress)
-      Thread.sleep(60 * 1000)
+      Thread.sleep(600 * 1000)
     }
 
     spark.streams.awaitAnyTermination()

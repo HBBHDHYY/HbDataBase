@@ -63,7 +63,7 @@ object realTime_GantryRelevant_rate {
       product_or_test = args(2)
       jobDescribe = args(3)
       yarnMode = "yarn-cluster"
-      kafka_bootstrap_servers = "172.27.44.205:6667,172.27.44.206:6667,172.27.44.207:6667,172.27.44.208:6667,172.27.44.209:6667"
+      kafka_bootstrap_servers = ConfigurationManager.getProperty("Product.bootstrap.servers")
       subscribe_kafakTopic = "RM_TGHBU_TOPIC"
       //RM_TGHBU_TOPIC(门架心跳流水)
     } else {
@@ -72,7 +72,7 @@ object realTime_GantryRelevant_rate {
       product_or_test = "test"
       jobDescribe = "测试"
       yarnMode = "local[*]"
-      kafka_bootstrap_servers = "hadoop103:9092,hadoop104:9092"
+      kafka_bootstrap_servers = ConfigurationManager.getProperty("Test.bootstrap.servers")
       subscribe_kafakTopic = "RM_TGHBU_TOPIC"
     }
     println("--------版本-19:30---------")
@@ -230,7 +230,7 @@ object realTime_GantryRelevant_rate {
       .coalesce(1)
       .writeStream
       .outputMode("update")
-      //.option("checkpointLocation", "./etcGantryHeartBeatInfo_hour_PassRate_result_StructuredSteaming_checkpoint")
+      //.option("checkpointLocation", "./realTime_GantryRelevant_rate_hour_result_StructuredSteaming_checkpoint")
       .trigger(Trigger.ProcessingTime(s"${duration_length} seconds"))
       .foreach(hour_PassRate_mysqlSink)
       .start
@@ -240,7 +240,7 @@ object realTime_GantryRelevant_rate {
       .coalesce(1)
       .writeStream
       .outputMode("update")
-      //.option("checkpointLocation", "./etcGantryHeartBeatInfo_day_PassRate_result_StructuredSteaming_checkpoint")
+      //.option("checkpointLocation", "./realTime_GantryRelevant_rate_day_result_StructuredSteaming_checkpoint")
       .trigger(Trigger.ProcessingTime(s"${duration_length} seconds"))
       .foreach(day_NormalRate_mysqlSink)
       .start
@@ -268,7 +268,7 @@ object realTime_GantryRelevant_rate {
     while (true){
       println(s"--当前时间${getCurrentDate()}--消费情况: "+hour_PassRate_result.lastProgress)
     println(s"--当前时间${getCurrentDate()}--消费情况: "+day_NormalRate_result.lastProgress)
-      Thread.sleep(60 * 1000)
+      Thread.sleep(600 * 1000)
     }
 
 

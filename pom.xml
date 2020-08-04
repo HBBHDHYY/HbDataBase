@@ -6,7 +6,7 @@
 
     <groupId>com.hr</groupId>
     <artifactId>HbDataBase</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>RateStatistics_7-31</version>
     <properties>
         <spark.version>2.4.0</spark.version>
         <scala.version>2.11</scala.version>
@@ -44,7 +44,11 @@
             <artifactId>spark-streaming-kafka-0-10_2.11</artifactId>
             <version>${spark.version}</version>
         </dependency>
-
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-sql-kafka-0-10_2.11</artifactId>
+            <version>${spark.version}</version>
+        </dependency>
         <!-- https://mvnrepository.com/artifact/com.alibaba/fastjson -->
         <dependency>
             <groupId>com.alibaba</groupId>
@@ -52,11 +56,11 @@
             <version>1.2.47</version>
         </dependency>
 
-        <!-- 德鲁伊连接池 -->
+        <!-- 德鲁伊连接池 1.1.16,1.1.21 -->
         <dependency>
             <groupId>com.alibaba</groupId>
             <artifactId>druid</artifactId>
-            <version>1.1.16</version>
+            <version>1.1.21</version>
         </dependency>
 
         <dependency>
@@ -68,6 +72,12 @@
         <dependency>
             <groupId>org.apache.spark</groupId>
             <artifactId>spark-hive_${scala.version}</artifactId>
+            <version>${spark.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.spark</groupId>
+            <artifactId>spark-sql-kafka-0-10_2.12</artifactId>
             <version>${spark.version}</version>
         </dependency>
 
@@ -109,12 +119,13 @@
             <version>${hbase.version}</version>
         </dependency>
 
+
+        <!-- 5.1.29 , 8.0.18 -->
         <dependency>
             <groupId>mysql</groupId>
             <artifactId>mysql-connector-java</artifactId>
-            <version>5.1.29</version>
+            <version>8.0.18</version>
         </dependency>
-
     </dependencies>
 
     <build>
@@ -132,11 +143,20 @@
                 </configuration>
                 <executions>
                     <execution>
+                        <!-- 先编译scala-->
+                        <id>scala-compile-first</id>
+                        <phase>process-resources</phase>
                         <!-- 声明绑定到maven的compile阶段 -->
                         <goals>
                             <goal>compile</goal>
                             <goal>testCompile</goal>
                         </goals>
+                        <configuration>
+                            <jvmArgs>
+                                <!-- 需要的配置 -->
+                                <jvmArg>-Xss60m</jvmArg>
+                            </jvmArgs>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
@@ -158,6 +178,12 @@
                     <skip>true</skip>
                 </configuration>
             </plugin>
+
+
+
+
+
+
 
         </plugins>
     </build>
